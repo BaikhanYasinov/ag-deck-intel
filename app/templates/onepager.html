@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>{{ op.company_name }} — инвестиционная справка</title>
+<style>
+  @page { size: A4; margin: 12mm; }
+  :root {
+    --ink: #1b1c1e; --muted: #6a6f75; --rule: #d9d5cd; --paper: #fbfaf7;
+    --pos: #2f6b4a; --neg: #a33a2a; --flag: #8a5a12;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 0; background: var(--paper); color: var(--ink);
+         font: 10.5px/1.45 "Segoe UI", Roboto, system-ui, sans-serif;
+         -webkit-font-smoothing: antialiased; }
+  .sheet { max-width: 190mm; margin: 0 auto; padding: 6mm; }
+  h1 { font: 600 21px/1.15 Charter, Georgia, serif; margin: 0 0 2px; letter-spacing: -.01em; }
+  .tagline { color: var(--muted); font-size: 11px; max-width: 62ch; margin-bottom: 4px; }
+  .meta { font-size: 9.5px; color: var(--muted); }
+  header { display: flex; justify-content: space-between; align-items: flex-start;
+           gap: 16px; border-bottom: 2px solid var(--ink); padding-bottom: 8px; }
+  .verdict { text-align: right; min-width: 150px; }
+  .verdict .label { font: 600 13px/1 "Segoe UI", sans-serif; }
+  .verdict .num { font: 700 34px/1 Charter, Georgia, serif; font-variant-numeric: tabular-nums; }
+  .verdict .num small { font-size: 13px; color: var(--muted); font-weight: 400; }
+  .verdict .note { font-size: 9px; color: var(--muted); max-width: 170px; margin-left: auto; }
+  .banner { margin-top: 8px; padding: 6px 8px; border-left: 3px solid var(--flag);
+            background: #f6efe1; font-size: 9.5px; }
+  .cols { display: grid; grid-template-columns: 1.35fr 1fr; gap: 14px; margin-top: 10px; }
+  section { margin-bottom: 11px; }
+  h2 { font: 600 9.5px/1 "Segoe UI", sans-serif; letter-spacing: .06em;
+       text-transform: uppercase; color: var(--muted); margin: 0 0 5px;
+       padding-bottom: 3px; border-bottom: 1px solid var(--rule); }
+  p { margin: 0 0 5px; }
+  ul { margin: 0; padding-left: 14px; }
+  li { margin-bottom: 3px; }
+  .scores { display: grid; gap: 4px; }
+  .row { display: grid; grid-template-columns: 88px 1fr 26px; align-items: center; gap: 6px; }
+  .bar { height: 6px; background: #e7e3da; }
+  .bar > i { display: block; height: 100%; background: var(--ink); }
+  .row b { font: 600 11px/1 "Segoe UI", sans-serif; text-align: right;
+           font-variant-numeric: tabular-nums; }
+  .row span { font-size: 9.5px; color: var(--muted); }
+  .flags li { color: var(--neg); }
+  .stub { color: var(--muted); font-style: italic; font-size: 9.5px; }
+  footer { margin-top: 10px; border-top: 1px solid var(--rule); padding-top: 5px;
+           font-size: 8.5px; color: var(--muted); display: flex;
+           justify-content: space-between; gap: 12px; }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <header>
+    <div>
+      <h1>{{ op.company_name }}</h1>
+      <div class="tagline">{{ op.tagline }}</div>
+      <div class="meta">{{ op.meta }}{% if op.meta %} · {% endif %}{{ doc_type_label }} · {{ fund }}</div>
+    </div>
+    <div class="verdict">
+      <div class="num">{{ overall }}<small>/100</small></div>
+      <div class="label">{{ verdict_label }}</div>
+      <div class="note">{{ note }}</div>
+    </div>
+  </header>
+
+  {% if limited %}
+  <div class="banner">
+    Документ распознан как «{{ doc_type_label|lower }}», а не как инвестиционный дек.
+    Оценка носит ограниченный характер, вердикт по компании не выносится.
+  </div>
+  {% endif %}
+  {% if visual_limited %}
+  <div class="banner">
+    Слайды не отрисованы целиком: в системе нет LibreOffice. Анализ выполнен по тексту,
+    встроенным изображениям и данным диаграмм.
+  </div>
+  {% endif %}
+
+  <div class="cols">
+    <div>
+      <section>
+        <h2>Рекомендация</h2>
+        <p>{{ op.recommendation }}</p>
+      </section>
+
+      <section>
+        <h2>Проблема</h2>
+        <p>{{ op.problem or 'В деке не сформулирована.' }}</p>
+        <h2 style="margin-top:8px">Решение</h2>
+        <p>{{ op.solution or 'В деке не сформулировано.' }}</p>
+      </section>
+
+      <section>
+        <h2>Трекшен</h2>
+        {% if op.traction %}<ul>{% for t in op.traction %}<li>{{ t }}</li>{% endfor %}</ul>
+        {% else %}<p class="stub">Количественных данных о тракции в деке нет.</p>{% endif %}
+      </section>
+
+      <section>
+        <h2>Команда</h2>
+        {% if op.team %}<ul>{% for t in op.team %}<li>{{ t }}</li>{% endfor %}</ul>
+        {% else %}<p class="stub">Состав команды в деке не раскрыт.</p>{% endif %}
+      </section>
+
+      <section>
+        <h2>Запрос</h2>
+        <p>{{ op.ask or 'Условия раунда в деке не раскрыты.' }}</p>
+      </section>
+    </div>
+
+    <div>
+      <section>
+        <h2>Оценки по измерениям</h2>
+        <div class="scores">
+          {% for s in scores %}
+          <div class="row">
+            <span>{{ s.title }}</span>
+            <div class="bar"><i style="width: {{ s.value }}%"></i></div>
+            <b>{{ s.value }}</b>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section>
+        <h2>Красные флаги ({{ op.red_flags|length }})</h2>
+        {% if op.red_flags %}
+          <ul class="flags">{% for f in op.red_flags %}<li>{{ f }}</li>{% endfor %}</ul>
+        {% else %}<p class="stub">Критичных сигналов не выявлено.</p>{% endif %}
+      </section>
+
+      <section>
+        <h2>Вопросы фаундеру</h2>
+        <ul>{% for q in op.questions %}<li>{{ q }}</li>{% endfor %}</ul>
+      </section>
+
+      <section>
+        <h2>Рыночные бенчмарки</h2>
+        {% if not enrichment %}
+        <p class="stub">Данные недоступны: внешний веб-поиск отключён в конфигурации.</p>
+        {% endif %}
+      </section>
+    </div>
+  </div>
+
+  <footer>
+    <span>Составлено автоматически на основе содержимого дека. Утверждения без ссылки
+      на страницу не включены.</span>
+    {% if issues %}<span>Замечаний валидации: {{ issues|length }}</span>{% endif %}
+  </footer>
+</div>
+</body>
+</html>

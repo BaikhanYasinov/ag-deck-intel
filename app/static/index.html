@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AG Ventures · Анализ деков</title>
+<style>
+  :root {
+    --bg:#0f141b; --panel:#161d26; --line:#26313f; --text:#e6ecf2;
+    --muted:#8b9aab; --accent:#e8a33d; --pos:#5fb37a; --neg:#d9614c;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:14px/1.5 "Segoe UI", Roboto, system-ui, sans-serif; }
+  .wrap { max-width:1080px; margin:0 auto; padding:32px 24px 64px; }
+  header { display:flex; justify-content:space-between; align-items:baseline;
+           border-bottom:1px solid var(--line); padding-bottom:14px; }
+  h1 { font-size:19px; font-weight:600; margin:0; letter-spacing:-.01em; }
+  .thesis { color:var(--muted); font-size:12px; }
+  .drop { margin-top:24px; border:1px dashed var(--line); border-radius:4px;
+          padding:36px; text-align:center; cursor:pointer; transition:border-color .15s; }
+  .drop:hover, .drop.over { border-color:var(--accent); }
+  .drop b { color:var(--accent); font-weight:600; }
+  .drop p { color:var(--muted); font-size:12px; margin:6px 0 0; }
+  .grid { display:grid; grid-template-columns:280px 1fr; gap:24px; margin-top:28px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:4px;
+           padding:16px; }
+  h2 { font-size:11px; letter-spacing:.06em; text-transform:uppercase;
+       color:var(--muted); margin:0 0 12px; font-weight:600; }
+  .agent { display:flex; justify-content:space-between; align-items:center;
+           padding:7px 0; border-bottom:1px solid var(--line); font-size:13px; }
+  .agent:last-child { border-bottom:0; }
+  .state { font-size:11px; color:var(--muted); }
+  .state.running { color:var(--accent); }
+  .state.completed { color:var(--pos); }
+  .state.failed { color:var(--neg); }
+  .num { font-variant-numeric:tabular-nums; font-weight:600; }
+  .stagebar { height:3px; background:var(--line); margin-top:14px; }
+  .stagebar > i { display:block; height:100%; background:var(--accent);
+                  transition:width .4s ease; }
+  .finding { padding:10px 0; border-bottom:1px solid var(--line); font-size:13px; }
+  .finding:last-child { border-bottom:0; }
+  .src { font-size:11px; color:var(--muted); }
+  .tag { display:inline-block; font-size:10px; padding:1px 6px; border-radius:2px;
+         border:1px solid var(--line); color:var(--muted); margin-right:6px; }
+  .tag.red_flag { color:var(--neg); border-color:var(--neg); }
+  .tag.strength { color:var(--pos); border-color:var(--pos); }
+  .verdict { display:flex; align-items:baseline; gap:12px; }
+  .verdict .score { font-size:38px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .warn { border-left:2px solid var(--accent); padding:8px 12px; margin-top:12px;
+          font-size:12px; color:var(--muted); background:rgba(232,163,61,.06); }
+  a.btn { display:inline-block; margin-top:14px; padding:8px 16px; background:var(--accent);
+          color:#111; text-decoration:none; border-radius:3px; font-weight:600; font-size:13px; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Анализ питч-деков</h1>
+    <div class="thesis" id="thesis"></div>
+  </header>
+
+  <div class="drop" id="drop">
+    <b>Выберите файл</b> или перетащите сюда
+    <p id="formats">PDF или PPTX, до 50 МБ</p>
+    <input type="file" id="file" class="hidden" accept=".pdf,.pptx">
+  </div>
+
+  <div class="grid hidden" id="grid">
+    <div class="panel">
+      <h2>Ход анализа</h2>
+      <div id="stage" class="state"></div>
+      <div class="stagebar"><i id="bar" style="width:0"></i></div>
+      <div id="agents" style="margin-top:14px"></div>
+      <div id="cost" class="src" style="margin-top:12px"></div>
+    </div>
+    <div class="panel">
+      <h2>Результат</h2>
+      <div id="result"><span class="src">Ожидание первых выводов…</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const STAGES = { queued:'В очереди', extracting:'Извлечение страниц',
+  classifying:'Определение типа документа', structuring:'Структуризация',
+  analyzing:'Работа агентов', aggregating:'Сборка оценки',
+  reporting:'Формирование отчёта', done:'Готово' };
+
+fetch('/api/v1/config').then(r=>r.json()).then(c=>{
+  $('#thesis').textContent = c.thesis;
+  $('#formats').textContent = c.formats.join(', ').toUpperCase() + ', до ' + c.max_file_mb + ' МБ';
+});
+
+$('#drop').onclick = () => $('#file').click();
+let lastFile = null;
+$('#file').onchange = e => upload(e.target.files[0]);
+$('#drop').ondragover = e => { e.preventDefault(); $('#drop').classList.add('over'); };
+$('#drop').ondragleave = () => $('#drop').classList.remove('over');
+$('#drop').ondrop = e => { e.preventDefault(); $('#drop').classList.remove('over');
+                           upload(e.dataTransfer.files[0]); };
+
+async function upload(file, force = false) {
+  if (!file) return;
+  lastFile = file;
+  const fd = new FormData();
+  fd.append('file', file);
+  const url = '/api/v1/documents' + (force ? '?force=true' : '');
+  const res = await fetch(url, { method:'POST', body:fd });
+  const data = await res.json();
+  if (!res.ok) { alert(data.detail || 'Не удалось загрузить файл'); return; }
+  $('#grid').classList.remove('hidden');
+  $('#result').innerHTML = data.message
+    ? `<div class="warn">${data.message}</div>` +
+      (data.reused ? '<a class="btn" id="again">Проанализировать заново</a>' : '')
+    : '<span class="src">Ожидание первых выводов…</span>';
+  if (data.reused) $('#again').onclick = () => upload(lastFile, true);
+  $('#agents').innerHTML = '';
+  $('#bar').style.width = '0';
+  listen(data.run_id);
+}
+
+function listen(runId) {
+  const es = new EventSource(`/api/v1/runs/${runId}/events`);
+  es.onmessage = e => {
+    const s = JSON.parse(e.data);
+    render(s);
+    if (['completed','partial','failed','not_a_deck','insufficient_input'].includes(s.status))
+      es.close();
+  };
+}
+
+function render(s) {
+  $('#stage').textContent = STAGES[s.stage] || s.stage;
+  $('#bar').style.width = Math.round((s.progress || 0) * 100) + '%';
+  $('#cost').textContent = [
+    s.provider ? 'Провайдер: ' + s.provider : '',
+    s.cost_usd ? 'Стоимость: $' + s.cost_usd.toFixed(3) : '',
+  ].filter(Boolean).join(' · ');
+
+  $('#agents').innerHTML = (s.agents || []).map(a => `
+    <div class="agent"><span>${a.title}</span>
+      <span class="state ${a.status}">${a.score != null ? `<b class="num">${a.score*20}</b>` : label(a.status)}</span>
+    </div>`).join('');
+
+  const out = [];
+  if (s.error) out.push(`<div class="warn">${s.error}</div>`);
+  if (s.score) out.push(`<div class="verdict"><span class="score">${s.score.overall}</span>
+      <div><div>${s.score.verdict_label}</div>
+      <div class="src">${s.score.breakdown.note}</div></div></div>`);
+
+  (s.agents || []).filter(a => a.payload).forEach(a => {
+    (a.payload.findings || []).forEach(f => {
+      const page = f.evidence && f.evidence.page ? `стр. ${f.evidence.page}` : 'без ссылки';
+      out.push(`<div class="finding"><span class="tag ${f.type}">${a.title}</span>${f.claim}
+        <div class="src">${page} · источник: ${f.source}</div></div>`);
+    });
+  });
+
+  (s.warnings || []).forEach(w => out.push(`<div class="warn">${w}</div>`));
+  if (s.report_html) out.push(`<a class="btn" href="${s.report_html}" target="_blank">Открыть отчёт</a>`);
+  $('#result').innerHTML = out.join('') || '<span class="src">Ожидание первых выводов…</span>';
+}
+
+function label(st) {
+  return { queued:'в очереди', running:'выполняется', failed:'ошибка' }[st] || st;
+}
+</script>
+</body>
+</html>
